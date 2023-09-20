@@ -1,0 +1,77 @@
+@file:OptIn(ExperimentalSerializationApi::class)
+
+package com.electronslab.quic
+
+import com.electronslab.pubsub.Message
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.*
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.decodeFromStream
+import net.luminis.quic.Version
+import net.luminis.quic.log.Logger
+import net.luminis.quic.log.SysOutLogger
+import net.luminis.quic.server.ApplicationProtocolConnection
+import net.luminis.quic.server.ServerConnector
+import java.io.FileInputStream
+import kotlin.coroutines.CoroutineContext
+
+class PushServer private constructor(port:Int, certFile:String, keyFile:String):CoroutineScope {
+
+
+    private val messagesFlow = MutableSharedFlow<Message.Publish>()
+
+    private val logger = SysOutLogger().apply {
+        timeFormat(Logger.TimeFormat.Long)
+        logWarning(true)
+        logInfo(true)
+    }
+
+    private val connector = ServerConnector(
+        port,
+        FileInputStream(certFile),
+        FileInputStream(keyFile),
+        listOf(Version.QUIC_version_1),
+        false,
+        logger
+    )
+
+    init {
+        connector.registerApplicationProtocol("push") { _, connection ->
+            println("registerApplicationProtocol")
+            val stream = connection.createStream(true)
+            launch {
+                var job:Job ? = null
+                while (true) {
+                    when (val message = Json.decodeFromStream<Message>(stream.inputStream)) {
+                        is Message.Subscribe -> {
+                            println(message)
+                            job = messagesFlow
+                                .filter { it.topic == message.topic }
+                                .onEach { stream.outputStream.bufferedWriter().write(it.message) }
+                                .flowOn(Dispatchers.IO)
+                                .launchIn(this)
+                        }
+                        is Message.Unsubscribe -> {
+                            job?.cancel()
+                        }
+                        is Message.Publish -> messagesFlow.emit(message)
+                    }
+                }
+            }
+            object : ApplicationProtocolConnection {}
+        }
+
+        connector.start()
+    }
+
+
+    companion object {
+        @JvmStatic
+        fun main(args: Array<String>) {
+            PushServer(8080, "ca-cert.pem", "ca-key.pem")
+        }
+    }
+
+    override val coroutineContext: CoroutineContext = Dispatchers.IO + SupervisorJob()
+}
