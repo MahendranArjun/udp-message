@@ -1,0 +1,109 @@
+
+import com.kilroyapp.Project
+import com.kilroyapp.Version
+import com.google.protobuf.gradle.*
+
+
+plugins {
+    kotlin("jvm") version "1.9.20"
+    id("com.google.protobuf") version "0.9.4"
+    `maven-publish`
+}
+
+group = Project.group
+version = Project.version
+
+repositories {
+    mavenCentral()
+    maven(Project.Maven.url) {
+        credentials {
+            username = Project.Maven.username
+            password = Project.Maven.password
+        }
+    }
+}
+
+dependencies {
+    implementation("org.jetbrains.kotlin:kotlin-stdlib:${Version.kotlinVersion}")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:${Version.coroutinesVersion}")
+
+    api("com.google.protobuf:protobuf-java-util:${Version.protobufVersion}")
+    api("io.grpc:grpc-stub:${Version.grpcVersion}")
+    api("io.grpc:grpc-protobuf:${Version.grpcVersion}")
+    api("io.grpc:grpc-netty-shaded:${Version.grpcVersion}")
+    api("io.grpc:grpc-kotlin-stub:${Version.grpcKotlinVersion}")
+}
+
+kotlin {
+    jvmToolchain(19)
+}
+
+tasks {
+    compileKotlin {
+        kotlinOptions {
+            jvmTarget = "19"
+            freeCompilerArgs = listOf("-Xcontext-receivers")
+        }
+    }
+}
+
+
+protobuf {
+
+    protoc {
+        artifact = "com.google.protobuf:protoc:${Version.protobufVersion}"
+    }
+    plugins {
+        grpc {
+            artifact = "io.grpc:protoc-gen-grpc-java:${Version.grpcVersion}"
+        }
+
+        grpcKotlin {
+            artifact = "io.grpc:protoc-gen-grpc-kotlin:${Version.grpcKotlinVersion}:jdk8@jar"
+        }
+    }
+
+    generateProtoTasks {
+        ofSourceSet("main").forEach {
+            it.plugins{
+                grpc()
+                grpcKotlin()
+            }
+        }
+
+    }
+}
+
+fun <T : Any> NamedDomainObjectContainer<T>.grpc( action: (T.() -> Unit)? = null) {
+    id("grpc", action)
+}
+
+fun <T : Any> NamedDomainObjectContainer<T>.grpcKotlin(action: (T.() -> Unit)? = null) {
+    id("grpckt", action)
+}
+
+
+project.afterEvaluate {
+    publishing {
+        publications {
+
+            create<MavenPublication>("maven") {
+                groupId = Project.group
+                artifactId = Project.artifactId
+                version = Project.version
+                from(components["kotlin"])
+            }
+        }
+
+        repositories {
+            maven(Project.Maven.url) {
+                credentials {
+                    username = Project.Maven.username
+                    password = Project.Maven.password
+                }
+            }
+        }
+    }
+}
+
+
