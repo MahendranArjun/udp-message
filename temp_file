@@ -1,0 +1,54 @@
+plugins {
+    kotlin("multiplatform")
+    id("com.android.library")
+}
+
+kotlin {
+    androidTarget()
+    sourceSets {
+        getByName("androidMain") {
+            dependencies {
+                implementation(project(":a"))
+                implementation(project(":b"))
+            }
+        }
+    }
+}
+
+android {
+    compileSdk = 34
+    defaultConfig {
+        minSdk = 21
+    }
+}
+
+afterEvaluate {
+    val variantName = "release" // or "debug"
+
+    val aClasses = project(":a").buildDir.resolve("classes/kotlin/android/$variantName")
+    val bClasses = project(":b").buildDir.resolve("classes/kotlin/android/$variantName")
+    val cClasses = buildDir.resolve("intermediates/javac/$variantName/classes") // Android plugin's compiled class dir
+    val mergedClassesDir = buildDir.resolve("mergedClasses/$variantName")
+
+    val mergeCompiledOutputs = tasks.register<Copy>("mergeCompiledOutputs") {
+        from(aClasses)
+        from(bClasses)
+        from(cClasses)
+        into(mergedClassesDir)
+    }
+
+    tasks.named("bundle${variantName.replaceFirstChar { it.uppercase() }}Aar").configure {
+        dependsOn(mergeCompiledOutputs)
+
+        doLast {
+            val aarFile = buildDir.resolve("outputs/aar/c-$variantName.aar")
+            ant.withGroovyBuilder {
+                "zipfileset"(
+                    "dir" to mergedClassesDir,
+                    "prefix" to "classes.jar"
+                )
+                "zip"("update" to "true", "destfile" to aarFile)
+            }
+        }
+    }
+}
